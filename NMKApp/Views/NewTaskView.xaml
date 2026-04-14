@@ -1,0 +1,75 @@
+<UserControl x:Class="NMKApp.Views.NewTaskView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:NMKApp.Converters">
+    <UserControl.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolVisConv"/>
+    </UserControl.Resources>
+
+    <Border Background="#80000000" Visibility="{Binding IsVisible, Converter={StaticResource BoolVisConv}}">
+        <Border Background="White" CornerRadius="12" Width="500" VerticalAlignment="Center"
+                HorizontalAlignment="Center" Padding="24">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.25"/>
+            </Border.Effect>
+            <StackPanel>
+                <TextBlock Text="New Task" FontSize="20" FontWeight="Bold"
+                           Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,20"/>
+
+                <TextBlock Text="Task Name" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                <TextBox Text="{Binding TaskName}" Style="{StaticResource ModernTextBoxStyle}" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Project" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                <ComboBox ItemsSource="{Binding Projects}" DisplayMemberPath="Name"
+                          SelectedValuePath="Id" SelectedValue="{Binding SelectedProjectId}"
+                          Padding="8,6" FontSize="13" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Assign To" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                <ComboBox ItemsSource="{Binding Users}" DisplayMemberPath="Email"
+                          SelectedValuePath="Id" SelectedValue="{Binding SelectedAssigneeId}"
+                          Padding="8,6" FontSize="13" Margin="0,0,0,12"/>
+
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Start Date" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <DatePicker SelectedDate="{Binding DateStart}" FontSize="13"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="End Date" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <DatePicker SelectedDate="{Binding DateEnd}" FontSize="13"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="Detail" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                <TextBox Text="{Binding Detail}" Style="{StaticResource ModernTextBoxStyle}"
+                         Height="80" TextWrapping="Wrap" AcceptsReturn="True" 
+                         VerticalScrollBarVisibility="Auto" Margin="0,0,0,12"/>
+
+                <TextBlock Text="Folder" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                <TextBox Text="{Binding Folder}" Style="{StaticResource ModernTextBoxStyle}" Margin="0,0,0,20"/>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Padding="16,8" FontSize="13"
+                            Command="{Binding CancelCommand}" Margin="0,0,8,0" Cursor="Hand"
+                            BorderThickness="0" Background="#E0E0E0" Foreground="#424242">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="6" 
+                                        Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Button Content="Create Task" Style="{StaticResource PrimaryButtonStyle}"
+                            Command="{Binding CreateCommand}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Border>
+</UserControl>

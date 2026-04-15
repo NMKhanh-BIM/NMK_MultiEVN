@@ -149,9 +149,9 @@ public class SupabaseService
             task.UpdatedAt = DateTimeOffset.Now;
             if (status == (int)Models.TaskStatus.Accepted)
                 task.DateAccepted = DateTimeOffset.Now;
-            else if (status == (int)Models.TaskStatus.Started)
+            else if (status == (int)Models.TaskStatus.Start)
                 task.DateStarted = DateTimeOffset.Now;
-            else if (status == (int)Models.TaskStatus.Completed)
+            else if (status == (int)Models.TaskStatus.Complete)
                 task.DateComplete = DateTimeOffset.Now;
             else if (status == (int)Models.TaskStatus.Checked)
                 task.DateChecked = DateTimeOffset.Now;
@@ -315,5 +315,56 @@ public class SupabaseService
     {
         var response = await Client.From<NMKUserAttendance>().Upsert(attendance);
         return response.Models.First();
+    }
+
+    // ===== Project Avatar =====
+    public async Task<string?> UpdateProjectAvatarAsync(string projectId, string localFilePath)
+    {
+        string avatarUrl;
+        try
+        {
+            // Try Supabase Storage upload
+            var ext        = System.IO.Path.GetExtension(localFilePath);
+            var remotePath = $"project_{projectId}{ext}";
+            var bytes      = await System.IO.File.ReadAllBytesAsync(localFilePath);
+            var contentType = ext.ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png"            => "image/png",
+                ".gif"            => "image/gif",
+                ".bmp"            => "image/bmp",
+                _                 => "image/jpeg"
+            };
+            await Client.Storage.From("project-avatars")
+                .Upload(bytes, remotePath,
+                    new Supabase.Storage.FileOptions { ContentType = contentType, Upsert = true });
+            avatarUrl = Client.Storage.From("project-avatars").GetPublicUrl(remotePath);
+        }
+        catch
+        {
+            // Fallback: store local file URI
+            avatarUrl = new Uri(localFilePath).AbsoluteUri;
+        }
+
+        try
+        {
+            var project = await Client.From<NMKProject>()
+                .Filter("id", Constants.Operator.Equals, projectId)
+                .Single();
+            if (project != null)
+            {
+                project.Avatar    = avatarUrl;
+                project.UpdatedAt = DateTimeOffset.Now;
+                await Client.From<NMKProject>()
+                    .Filter("id", Constants.Operator.Equals, projectId)
+                    .Update(project);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"UpdateProjectAvatarAsync DB error: {ex.Message}");
+        }
+
+        return avatarUrl;
     }
 }

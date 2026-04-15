@@ -2,13 +2,15 @@ namespace NMKApp.Models;
 
 public enum TaskStatus
 {
-    New = 0,
-    Accepted = 1,
-    Started = 2,
-    Completed = 3,
+    Complete = 0,
+    NewDontSend = 1,
+    EditDontSend = 2,
+    New = 3,
     Checked = 4,
-    Rejected = 5,
-    Cancelled = 6
+    ReChecked = 5,
+    Start = 6,
+    Accepted = 7,
+    Interrupted = 10
 }
 
 public enum LeaveType

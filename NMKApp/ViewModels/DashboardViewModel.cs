@@ -1,10 +1,20 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Win32;
 using NMKApp.Models;
 using System.Collections.ObjectModel;
 
 namespace NMKApp.ViewModels;
 
+// ─── Status Filter Item ────────────────────────────────────────────────────────
+public partial class StatusFilterItem : ObservableObject
+{
+    [ObservableProperty] private bool isChecked = true;
+    public string Label { get; set; } = string.Empty;
+    public int? StatusValue { get; set; } // null = "All"
+}
+
+// ─── Project Card ViewModel ────────────────────────────────────────────────────
 public partial class ProjectCardViewModel : ObservableObject
 {
     [ObservableProperty] private string id = string.Empty;
@@ -13,10 +23,12 @@ public partial class ProjectCardViewModel : ObservableObject
     [ObservableProperty] private string revitVersion = string.Empty;
     [ObservableProperty] private string description = string.Empty;
     [ObservableProperty] private string avatar = string.Empty;
+    [ObservableProperty] private string color = "#1976D2";
 
     public ObservableCollection<TaskCardViewModel> Tasks { get; } = new();
 }
 
+// ─── Task Card ViewModel ───────────────────────────────────────────────────────
 public partial class TaskCardViewModel : ObservableObject
 {
     [ObservableProperty] private string id = string.Empty;
@@ -32,33 +44,109 @@ public partial class TaskCardViewModel : ObservableObject
     [ObservableProperty] private string statusColor = "#9E9E9E";
 
     public string StartText => DateStart?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "";
-    public string EndText => DateEnd?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "";
+    public string EndText   => DateEnd?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "";
 }
 
+// ─── Dashboard ViewModel ───────────────────────────────────────────────────────
 public partial class DashboardViewModel : ObservableObject
 {
     private readonly MainViewModel _mainVM;
+    private bool _updatingAllFilter;
+    private readonly Dictionary<string, TaskCardViewModel> _taskDict = new();
+
+    private static readonly string[] ProjectColorPalette =
+    [
+        "#1976D2", "#7B1FA2", "#00897B", "#E64A19",
+        "#388E3C", "#F57C00", "#0288D1", "#5D4037",
+        "#455A64", "#C62828"
+    ];
 
     [ObservableProperty] private bool isAssignedByMe = true;
     [ObservableProperty] private bool isToday = true;
     [ObservableProperty] private int selectedMonth = DateTime.Now.Month;
     [ObservableProperty] private int selectedYear = DateTime.Now.Year;
     [ObservableProperty] private string? selectedProjectFilter;
-    [ObservableProperty] private int? selectedStatusFilter;
     [ObservableProperty] private bool isLoading;
+    [ObservableProperty] private string statusFilterText = "Filter by status";
+
+    public bool IsAdmin => _mainVM.CurrentUser?.UserRole is "Admin" or "AdminApp";
 
     public ObservableCollection<ProjectCardViewModel> ProjectCards { get; } = new();
-    public ObservableCollection<TaskCardViewModel> TaskCards { get; } = new();
     public ObservableCollection<NMKProject> Projects { get; } = new();
-    public ObservableCollection<string> StatusFilters { get; } = new()
-    {
-        "All", "New", "Accepted", "Start", "Completed", "Checked"
-    };
+    public ObservableCollection<StatusFilterItem> StatusFilterItems { get; } = new();
 
     public DashboardViewModel(MainViewModel mainVM)
     {
         _mainVM = mainVM;
+        InitStatusFilters();
     }
+
+    private void InitStatusFilters()
+    {
+        var allItem = new StatusFilterItem { Label = "Task All", StatusValue = null, IsChecked = true };
+        allItem.PropertyChanged += OnAllFilterChanged;
+        StatusFilterItems.Add(allItem);
+
+        StatusFilterItem[] items =
+        [
+            new() { Label = "Task Accepted",  StatusValue = 7 },
+            new() { Label = "Task Start",     StatusValue = 6 },
+            new() { Label = "Task New",       StatusValue = 3 },
+            new() { Label = "Task Checked",   StatusValue = 4 },
+            new() { Label = "Task ReChecked", StatusValue = 5 },
+            new() { Label = "Task Complete",  StatusValue = 0 },
+        ];
+
+        foreach (var item in items)
+        {
+            item.PropertyChanged += OnStatusFilterChanged;
+            StatusFilterItems.Add(item);
+        }
+        UpdateStatusFilterText();
+    }
+
+    private void OnAllFilterChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(StatusFilterItem.IsChecked) || _updatingAllFilter) return;
+        _updatingAllFilter = true;
+        var isAll = StatusFilterItems[0].IsChecked;
+        foreach (var item in StatusFilterItems.Skip(1))
+            item.IsChecked = isAll;
+        _updatingAllFilter = false;
+        UpdateStatusFilterText();
+        _ = LoadDataAsync();
+    }
+
+    private void OnStatusFilterChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(StatusFilterItem.IsChecked) || _updatingAllFilter) return;
+        _updatingAllFilter = true;
+        StatusFilterItems[0].IsChecked = StatusFilterItems.Skip(1).All(i => i.IsChecked);
+        _updatingAllFilter = false;
+        UpdateStatusFilterText();
+        _ = LoadDataAsync();
+    }
+
+    private void UpdateStatusFilterText()
+    {
+        if (StatusFilterItems[0].IsChecked)
+        {
+            StatusFilterText = "Task All";
+            return;
+        }
+        var checkedItems = StatusFilterItems.Skip(1).Where(i => i.IsChecked).ToList();
+        StatusFilterText = checkedItems.Count == 0 ? "No status"
+            : checkedItems.Count == 1 ? checkedItems[0].Label
+            : $"{checkedItems.Count} selected";
+    }
+
+    private HashSet<int> GetSelectedStatuses() =>
+        StatusFilterItems[0].IsChecked
+            ? new HashSet<int> { 0, 1, 2, 3, 4, 5, 6, 7, 10 }
+            : StatusFilterItems.Skip(1)
+                .Where(i => i.IsChecked && i.StatusValue.HasValue)
+                .Select(i => i.StatusValue!.Value)
+                .ToHashSet();
 
     public async Task LoadDataAsync()
     {
@@ -66,12 +154,12 @@ public partial class DashboardViewModel : ObservableObject
         IsLoading = true;
         try
         {
-            // Load projects
             var projects = await _mainVM.SupabaseService.GetProjectsAsync();
+
             Projects.Clear();
+            Projects.Add(new NMKProject { Id = "", Name = "All Projects" });
             foreach (var p in projects) Projects.Add(p);
 
-            // Calculate date range
             DateTimeOffset start, end;
             if (IsToday)
             {
@@ -80,56 +168,73 @@ public partial class DashboardViewModel : ObservableObject
             }
             else
             {
-                start = new DateTimeOffset(new DateTime(SelectedYear, SelectedMonth, 1));
+                var year  = SelectedYear  > 0 ? SelectedYear  : DateTime.Now.Year;
+                var month = SelectedMonth is >= 1 and <= 12 ? SelectedMonth : DateTime.Now.Month;
+                start = new DateTimeOffset(new DateTime(year, month, 1));
                 end = start.AddMonths(1).AddTicks(-1);
             }
 
-            // Load tasks
             var tasks = await _mainVM.SupabaseService.GetTasksByDateRangeAsync(
                 _mainVM.CurrentUser.Id, start, end, IsAssignedByMe);
 
-            // Apply status filter
-            if (SelectedStatusFilter.HasValue && SelectedStatusFilter.Value >= 0)
-                tasks = tasks.Where(t => t.Status == SelectedStatusFilter.Value).ToList();
+            var selectedStatuses = GetSelectedStatuses();
+            tasks = tasks.Where(t => selectedStatuses.Contains(t.Status ?? 0)).ToList();
 
-            // Apply project filter
             if (!string.IsNullOrEmpty(SelectedProjectFilter))
                 tasks = tasks.Where(t => t.ProjectId == SelectedProjectFilter).ToList();
 
-            // Build project cards with tasks
             ProjectCards.Clear();
-            TaskCards.Clear();
+            _taskDict.Clear();
 
-            var projectIds = tasks.Select(t => t.ProjectId).Distinct().ToList();
+            var projectIds = tasks
+                .Select(t => t.ProjectId)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Distinct()
+                .ToList();
+
             var relevantProjects = projects.Where(p => projectIds.Contains(p.Id)).ToList();
+            int colorIdx = 0;
 
             foreach (var project in relevantProjects)
             {
+                var projectColor = !string.IsNullOrEmpty(project.Color)
+                    ? project.Color
+                    : ProjectColorPalette[colorIdx % ProjectColorPalette.Length];
+                colorIdx++;
+
                 var card = new ProjectCardViewModel
                 {
-                    Id = project.Id,
-                    Name = project.Name ?? "",
-                    CreatedAt = project.CreatedAt?.LocalDateTime.ToString("dd/MM/yyyy") ?? "",
+                    Id           = project.Id,
+                    Name         = project.Name ?? "",
+                    CreatedAt    = project.CreatedAt?.LocalDateTime.ToString("dd/MM/yyyy") ?? "",
                     RevitVersion = project.RevitVersion ?? "",
-                    Description = project.Description ?? "",
-                    Avatar = project.Avatar ?? ""
+                    Description  = project.Description ?? "",
+                    Avatar       = project.Avatar ?? "",
+                    Color        = projectColor
                 };
 
-                var projectTasks = tasks.Where(t => t.ProjectId == project.Id);
-                foreach (var task in projectTasks)
+                foreach (var task in tasks.Where(t => t.ProjectId == project.Id))
                 {
-                    var tcvm = CreateTaskCard(task, project.Name ?? "");
-                    card.Tasks.Add(tcvm);
-                    TaskCards.Add(tcvm);
+                    var tc = CreateTaskCard(task, project.Name ?? "");
+                    card.Tasks.Add(tc);
+                    _taskDict[tc.Id] = tc;
                 }
                 ProjectCards.Add(card);
             }
 
-            // Tasks without project
-            var orphanTasks = tasks.Where(t => string.IsNullOrEmpty(t.ProjectId) || !projectIds.Contains(t.ProjectId));
-            foreach (var task in orphanTasks)
+            var orphanTasks = tasks
+                .Where(t => string.IsNullOrEmpty(t.ProjectId) || !projectIds.Contains(t.ProjectId))
+                .ToList();
+            if (orphanTasks.Count > 0)
             {
-                TaskCards.Add(CreateTaskCard(task, "No Project"));
+                var noProj = new ProjectCardViewModel { Id = "", Name = "No Project", Color = "#546E7A" };
+                foreach (var task in orphanTasks)
+                {
+                    var tc = CreateTaskCard(task, "No Project");
+                    noProj.Tasks.Add(tc);
+                    _taskDict[tc.Id] = tc;
+                }
+                ProjectCards.Add(noProj);
             }
         }
         catch (Exception ex)
@@ -142,42 +247,57 @@ public partial class DashboardViewModel : ObservableObject
         }
     }
 
-    private TaskCardViewModel CreateTaskCard(NMKTask task, string projectName)
+    private static TaskCardViewModel CreateTaskCard(NMKTask task, string projectName)
     {
-        var statusInt = task.Status ?? 0;
+        var status = task.Status ?? 0;
         return new TaskCardViewModel
         {
-            Id = task.Id,
-            Name = task.Name ?? "",
-            Status = statusInt,
-            StatusText = statusInt switch
-            {
-                0 => "New",
-                1 => "Accepted",
-                2 => "Start",
-                3 => "Completed",
-                4 => "Checked",
-                5 => "Rejected",
-                _ => "Unknown"
-            },
-            StatusColor = statusInt switch
-            {
-                0 => "#4CAF50",
-                1 => "#FF9800",
-                2 => "#9C27B0",
-                3 => "#2196F3",
-                4 => "#607D8B",
-                5 => "#F44336",
-                _ => "#9E9E9E"
-            },
-            ProjectId = task.ProjectId ?? "",
-            ProjectName = projectName,
-            DateStart = task.DateStart,
-            DateEnd = task.DateEnd,
+            Id            = task.Id,
+            Name          = task.Name ?? "",
+            Status        = status,
+            StatusText    = GetStatusText(status),
+            StatusColor   = GetStatusColor(status),
+            ProjectId     = task.ProjectId ?? "",
+            ProjectName   = projectName,
+            DateStart     = task.DateStart,
+            DateEnd       = task.DateEnd,
             AssigneeEmail = task.AssigneeEmail ?? "",
             AssignerEmail = task.AssigneeByEmail ?? ""
         };
     }
+
+    public static string GetStatusText(int status) => status switch
+    {
+        0  => "Complete",
+        1  => "New",
+        2  => "Edit",
+        3  => "New",
+        4  => "Checked",
+        5  => "ReChecked",
+        6  => "Start",
+        7  => "Accepted",
+        10 => "Interrupted",
+        _  => "Unknown"
+    };
+
+    public static string GetStatusColor(int status) => status switch
+    {
+        0  => "#00897B",
+        1  => "#9E9E9E",
+        2  => "#78909C",
+        3  => "#1E88E5",
+        4  => "#E64A19",
+        5  => "#FB8C00",
+        6  => "#8E24AA",
+        7  => "#F57F17",
+        10 => "#E53935",
+        _  => "#9E9E9E"
+    };
+
+    partial void OnIsTodayChanged(bool value)          => _ = LoadDataAsync();
+    partial void OnSelectedMonthChanged(int value)     => _ = LoadDataAsync();
+    partial void OnSelectedYearChanged(int value)      => _ = LoadDataAsync();
+    partial void OnSelectedProjectFilterChanged(string? value) => _ = LoadDataAsync();
 
     [RelayCommand]
     private async Task ToggleAssignedByMe()
@@ -194,16 +314,33 @@ public partial class DashboardViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ToggleToday()
+    private async Task ChangeProjectAvatar(string projectId)
     {
-        IsToday = IsToday;
-        await LoadDataAsync();
-    }
-
-    [RelayCommand]
-    private async Task FilterChanged()
-    {
-        await LoadDataAsync();
+        if (!IsAdmin) return;
+        var dlg = new OpenFileDialog
+        {
+            Title  = "Select Project Avatar",
+            Filter = "Image files (*.png;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp"
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            IsLoading = true;
+            var url = await _mainVM.SupabaseService.UpdateProjectAvatarAsync(projectId, dlg.FileName);
+            if (url != null)
+            {
+                var card = ProjectCards.FirstOrDefault(p => p.Id == projectId);
+                if (card != null) card.Avatar = url;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Change avatar error: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
     }
 
     [RelayCommand]
@@ -215,10 +352,7 @@ public partial class DashboardViewModel : ObservableObject
             await _mainVM.SupabaseService.UpdateTaskStatusAsync(taskId, (int)Models.TaskStatus.Accepted);
             await LoadDataAsync();
         }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Accept task error: {ex.Message}");
-        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Accept task error: {ex.Message}"); }
     }
 
     [RelayCommand]
@@ -227,13 +361,10 @@ public partial class DashboardViewModel : ObservableObject
         if (_mainVM.CurrentUser == null) return;
         try
         {
-            await _mainVM.SupabaseService.UpdateTaskStatusAsync(taskId, (int)Models.TaskStatus.Started);
+            await _mainVM.SupabaseService.UpdateTaskStatusAsync(taskId, (int)Models.TaskStatus.Start);
             await LoadDataAsync();
         }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Start task error: {ex.Message}");
-        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Start task error: {ex.Message}"); }
     }
 
     [RelayCommand]
@@ -242,48 +373,39 @@ public partial class DashboardViewModel : ObservableObject
         if (_mainVM.CurrentUser == null) return;
         try
         {
-            await _mainVM.SupabaseService.UpdateTaskStatusAsync(taskId, (int)Models.TaskStatus.Completed);
+            await _mainVM.SupabaseService.UpdateTaskStatusAsync(taskId, (int)Models.TaskStatus.Complete);
 
-            // Find task info for email
-            var taskCard = TaskCards.FirstOrDefault(t => t.Id == taskId);
-            if (taskCard != null && !string.IsNullOrEmpty(taskCard.AssignerEmail))
+            if (_taskDict.TryGetValue(taskId, out var taskCard) && !string.IsNullOrEmpty(taskCard.AssignerEmail))
             {
                 try
                 {
                     _mainVM.OutlookService.SendTaskCompletedEmail(
-                        taskCard.AssignerEmail,
-                        taskCard.Name,
-                        taskCard.ProjectName,
-                        _mainVM.CurrentUserEmail);
+                        taskCard.AssignerEmail, taskCard.Name,
+                        taskCard.ProjectName, _mainVM.CurrentUserEmail);
                 }
                 catch (Exception emailEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"Email error: {emailEx.Message}");
                 }
 
-                // Create notification
                 await _mainVM.SupabaseService.CreateNotificationAsync(new NMKNotify
                 {
-                    TaskId = taskId,
-                    ProjectId = taskCard.ProjectId,
-                    ReceiverId = "", // would need assigner's user ID
+                    TaskId        = taskId,
+                    ProjectId     = taskCard.ProjectId,
+                    ReceiverId    = "",
                     ReceiverEmail = taskCard.AssignerEmail,
-                    ActorId = _mainVM.CurrentUser.Id,
-                    ActorEmail = _mainVM.CurrentUserEmail,
-                    NotifyType = (int)Models.NotifyType.Task,
-                    Title = $"Task Completed: {taskCard.Name}",
-                    Content = $"{_mainVM.CurrentUserEmail} completed task '{taskCard.Name}'",
-                    EntityType = (int)Models.EntityType.Task,
-                    EventType = (int)Models.EventType.StatusChanged,
-                    EntityId = taskId
+                    ActorId       = _mainVM.CurrentUser.Id,
+                    ActorEmail    = _mainVM.CurrentUserEmail,
+                    NotifyType    = (int)NotifyType.Task,
+                    Title         = $"Task Completed: {taskCard.Name}",
+                    Content       = $"{_mainVM.CurrentUserEmail} completed task '{taskCard.Name}'",
+                    EntityType    = (int)EntityType.Task,
+                    EventType     = (int)EventType.StatusChanged,
+                    EntityId      = taskId
                 });
             }
-
             await LoadDataAsync();
         }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Complete task error: {ex.Message}");
-        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Complete task error: {ex.Message}"); }
     }
 }

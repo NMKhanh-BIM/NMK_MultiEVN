@@ -27,13 +27,16 @@ public class TaskStatusToColorConverter : IValueConverter
         {
             return status switch
             {
-                0 => new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50)), // New - Green
-                1 => new SolidColorBrush(Color.FromRgb(0xFF, 0x98, 0x00)), // Accepted - Orange
-                2 => new SolidColorBrush(Color.FromRgb(0x9C, 0x27, 0xB0)), // Started - Purple
-                3 => new SolidColorBrush(Color.FromRgb(0x21, 0x96, 0xF3)), // Completed - Blue
-                4 => new SolidColorBrush(Color.FromRgb(0x60, 0x7D, 0x8B)), // Checked - Gray
-                5 => new SolidColorBrush(Color.FromRgb(0xF4, 0x43, 0x36)), // Rejected - Red
-                _ => new SolidColorBrush(Color.FromRgb(0x9E, 0x9E, 0x9E))
+                0  => new SolidColorBrush(Color.FromRgb(0x00, 0x89, 0x7B)), // Complete      – Teal
+                1  => new SolidColorBrush(Color.FromRgb(0x9E, 0x9E, 0x9E)), // NewDontSend   – Gray
+                2  => new SolidColorBrush(Color.FromRgb(0x78, 0x90, 0x9C)), // EditDontSend  – Blue-Gray
+                3  => new SolidColorBrush(Color.FromRgb(0x1E, 0x88, 0xE5)), // New           – Blue
+                4  => new SolidColorBrush(Color.FromRgb(0xE6, 0x4A, 0x19)), // Checked       – Deep Orange
+                5  => new SolidColorBrush(Color.FromRgb(0xFB, 0x8C, 0x00)), // ReChecked     – Orange
+                6  => new SolidColorBrush(Color.FromRgb(0x8E, 0x24, 0xAA)), // Start         – Purple
+                7  => new SolidColorBrush(Color.FromRgb(0xF5, 0x7F, 0x17)), // Accepted      – Amber
+                10 => new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35)), // Interrupted   – Red
+                _  => new SolidColorBrush(Color.FromRgb(0x9E, 0x9E, 0x9E))
             };
         }
         return new SolidColorBrush(Colors.Gray);
@@ -51,14 +54,16 @@ public class TaskStatusToTextConverter : IValueConverter
         {
             return status switch
             {
-                0 => "New",
-                1 => "Accepted",
-                2 => "Start",
-                3 => "Completed",
-                4 => "Checked",
-                5 => "Rejected",
-                6 => "Cancelled",
-                _ => "Unknown"
+                0  => "Complete",
+                1  => "New",
+                2  => "Edit",
+                3  => "New",
+                4  => "Checked",
+                5  => "ReChecked",
+                6  => "Start",
+                7  => "Accepted",
+                10 => "Interrupted",
+                _  => "Unknown"
             };
         }
         return "Unknown";
@@ -188,4 +193,53 @@ public class BoolToBrushConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotImplementedException();
+}
+
+public class StringNotEmptyToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool invert = parameter?.ToString() == "Invert";
+        bool hasValue = value is string s && !string.IsNullOrEmpty(s);
+        if (invert) hasValue = !hasValue;
+        return hasValue ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+public class StringToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is string colorStr && !string.IsNullOrEmpty(colorStr))
+        {
+            try
+            {
+                var color = (Color)ColorConverter.ConvertFromString(colorStr);
+                return new SolidColorBrush(color);
+            }
+            catch { }
+        }
+        return new SolidColorBrush(Color.FromRgb(0x19, 0x76, 0xD2));
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotImplementedException();
+}
+
+public class BindingProxy : System.Windows.Freezable
+{
+    protected override System.Windows.Freezable CreateInstanceCore() => new BindingProxy();
+
+    public static readonly System.Windows.DependencyProperty DataProperty =
+        System.Windows.DependencyProperty.Register(
+            "Data", typeof(object), typeof(BindingProxy), new System.Windows.UIPropertyMetadata(null));
+
+    public object Data
+    {
+        get => GetValue(DataProperty);
+        set => SetValue(DataProperty, value);
+    }
 }
